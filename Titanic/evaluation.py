@@ -1,20 +1,26 @@
 import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn import tree
 from sklearn.naive_bayes import GaussianNB
 from sklearn.neural_network import MLPClassifier
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier,VotingClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import AdaBoostClassifier
 from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.model_selection import  StratifiedShuffleSplit,GridSearchCV,cross_val_score,StratifiedKFold
+from xgboost import XGBClassifier
+from sklearn.model_selection import  train_test_split,StratifiedShuffleSplit,GridSearchCV,cross_val_score,StratifiedKFold
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import confusion_matrix,classification_report
 import matplotlib.pyplot as plt
 import itertools
 from sklearn import metrics
+
+
 
 data_train = np.loadtxt('train_standard.csv', delimiter=',') #数据类型默认是float
 x=data_train[:,1:] #array下标从0开始
@@ -92,6 +98,15 @@ y=data_train[:,0].astype(int) #由float转为int型
 # print(grid_search.best_score_) #获得最好结果的评分
 # print(grid_search.best_params_) #最好结果下的参数n_estimators=300,learning_rate=0.1,max_depth=2,min_samples_split=200,min_samples_leaf=6
 
+#XGBoost算法
+# clf=XGBClassifier(n_estimators=200,learning_rate=0.2,max_depth=2,mim_child_weight=0.8,gamma=0.009,colsample_bytree=0.7,subsample=0.9)
+# param_grid={'alpha':alphas}
+# #StratifiedKFold是分层采样进行的交叉验证，random_state=0是一个固定的数，表示运行多次得到的划分将是固定的
+# grid_search=GridSearchCV(clf,param_grid=param_grid,scoring='accuracy',cv=StratifiedKFold(n_splits=10,random_state=0))
+# grid_search.fit(x,y) #运行网格搜索
+# print(grid_search.grid_scores_) #所有参数下的结果
+# print(grid_search.best_score_) #获得最好结果的评分
+# print(grid_search.best_params_) #最好结果下的参数n_estimators=300,learning_rate=0.1,max_depth=2,min_samples_split=200,min_samples_leaf=6
 
 #交叉验证
 accuracy_list=[]
@@ -99,10 +114,13 @@ skf=StratifiedKFold(n_splits=10,random_state=0)
 for train_index,test_index in skf.split(x,y):
     x_train, x_test = x[train_index], x[test_index]
     y_train, y_test = y[train_index], y[test_index]
-    clf = GradientBoostingClassifier(n_estimators=300, learning_rate=0.1, max_depth=2, min_samples_split=200,min_samples_leaf=6)  # 0.847
-    # clf=RandomForestClassifier(n_estimators=500,min_samples_split=4,min_samples_leaf=2,n_jobs=-1) #0.83
-    # clf=LogisticRegression(penalty='l2',C=0.1) #0.83
-    # clf=SVC(C=10,gamma=0.01) #0.83
+    xgboost = XGBClassifier(n_estimators=200, learning_rate=0.2, max_depth=2, mim_child_weight=0.8, gamma=0.009,colsample_bytree=0.7, subsample=0.9) #accuracy:0.858 +/- 0.031
+    gbdt = GradientBoostingClassifier(n_estimators=300, learning_rate=0.1, max_depth=2, min_samples_split=200,min_samples_leaf=6)  # 0.847
+    rf=RandomForestClassifier(n_estimators=500,min_samples_split=4,min_samples_leaf=2,n_jobs=-1) #0.83
+    lr=LogisticRegression(penalty='l2',C=0.1) #0.83
+    svm = SVC(C=10, gamma=0.01)  # 0.83
+    #投票机制
+    clf=VotingClassifier(estimators=[('xgboost',xgboost),('gbdt',gbdt),('rf',rf),('lr',lr),('svm',svm)],voting='hard',weights=[0.50,0.05,0.05,0.2,0.2]) #accuracy:0.860 +/- 0.032
     # clf=KNeighborsClassifier(n_neighbors=35,weights='distance') #0.81
     # clf=GaussianNB() #0.80
     # clf=MLPClassifier(solver='lbfgs',hidden_layer_sizes=5,alpha=5) #0.82
@@ -112,6 +130,23 @@ for train_index,test_index in skf.split(x,y):
     accuracy_list.append(score)
 print('accuracy:%.3f +/- %.3f' %(np.mean(accuracy_list),np.std(accuracy_list)))
 
+# #比较5种分类器预测结果的相似性，从而给它们分配合适的权重
+# x_train,x_test,y_train,y_test=train_test_split(x,y,test_size=0.2,random_state=0,shuffle=True,stratify=y)
+# xgboost = XGBClassifier(n_estimators=200, learning_rate=0.2, max_depth=2, mim_child_weight=0.8, gamma=0.009,colsample_bytree=0.7, subsample=0.9) #accuracy:0.858 +/- 0.031
+# gbdt = GradientBoostingClassifier(n_estimators=300, learning_rate=0.1, max_depth=2, min_samples_split=200,min_samples_leaf=6)  # 0.847
+# rf=RandomForestClassifier(n_estimators=500,min_samples_split=4,min_samples_leaf=2,n_jobs=-1) #0.83
+# lr=LogisticRegression(penalty='l2',C=0.1) #0.83
+# svm=SVC(C=10,gamma=0.01) #0.83
+# for model in [xgboost,gbdt,rf,lr,svm]:
+#     model.fit(x_train,y_train)
+# xgboost_pred=xgboost.predict(x_test)
+# gbdt_pred=gbdt.predict(x_test)
+# rf_pred=rf.predict(x_test)
+# lr_pred=lr.predict(x_test)
+# svm_pred=svm.predict(x_test)
+# preds=pd.DataFrame({'xgboost':xgboost_pred,'gbdt':gbdt_pred,'rf':rf_pred,'lr':lr_pred,'svm':svm_pred})
+# sns.pairplot(preds)
+# plt.show()
 
 #画混淆矩阵
 # def plot_confusion_matrix(cm, classes,title='Confusion matrix',cmap=plt.cm.Blues):
@@ -126,8 +161,8 @@ print('accuracy:%.3f +/- %.3f' %(np.mean(accuracy_list),np.std(accuracy_list)))
 #     thresh = cm.max() / 2.
 #     for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
 #         plt.text(j, i, format(cm[i, j], fmt),
-#                  horizontalalignment="center",
-#                  color="white" if cm[i, j] > thresh else "black")
+#      horizontalalignment="center",
+#      color="white" if cm[i, j] > thresh else "black")
 #
 #     plt.tight_layout()
 #     plt.ylabel('True label')
